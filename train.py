@@ -56,9 +56,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
           opt,
           device,
           ):
-    save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, notest, nosave, workers, = \
+    save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, notest, nosave, workers, frozen = \
         opt.save_dir, opt.epochs, opt.batch_size, opt.weights, opt.single_cls, opt.evolve, opt.data, opt.cfg, \
-        opt.resume, opt.notest, opt.nosave, opt.workers
+        opt.resume, opt.notest, opt.nosave, opt.workers, opt.frozen
 
     # Directories
     save_dir = Path(save_dir)
@@ -117,6 +117,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         with torch_distributed_zero_first(RANK):
             weights = attempt_download(weights)  # download if not found locally
         ckpt = torch.load(weights, map_location=device)  # load checkpoint
+        ckpt['model'].yaml['nc']=nc
         model = Model(cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (cfg or hyp.get('anchors')) and not resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
@@ -131,7 +132,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     test_path = data_dict['val']
 
     # Freeze
-    freeze = []  # parameter names to freeze (full or partial)
+    freeze = ['model.%s.' % x for x in range(frozen)]  # parameter names to freeze (full or partial)
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         if any(x in k for x in freeze):
@@ -515,6 +516,7 @@ def parse_opt(known=False):
     parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
+    parser.add_argument('--frozen', type=int, default=0, help='num of frozen layers')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     return opt
 
